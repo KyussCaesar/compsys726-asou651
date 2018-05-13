@@ -17,6 +17,9 @@ use std::iter::Extend;
 
 use rayon::prelude::*;
 
+mod model;
+use model::Model;
+
 /// This gives access to ROS messages.
 rosmsg_include!();
 
@@ -29,25 +32,22 @@ type HashMap<K, V> = std::collections::HashMap<K, V, Hasher>;
 type HashSet<V> = std::collections::HashSet<V, Hasher>;
 
 /// A pair of indices into the map.
-type Pair = (usize, usize);
+type Point = (usize, usize);
 
 /// A set of points.
-type Points = HashSet<Pair>;
+type Points = HashSet<Point>;
 
 /// An alias for the `OccupancyGrid` message type.
 type Map = msg::nav_msgs::OccupancyGrid;
-
-/// An alias for a type representing the cells that are occupied.
-type OccupiedCells = HashSet<Pair>;
 
 /// Alias for `usize`.
 type GroupNumber = usize;
 
 /// A hash table that keeps track of contiguous blocks of occupied cells.
-type GroupTable = HashMap<GroupNumber, Vec<Pair>>;
+type GroupTable = HashMap<GroupNumber, Points>;
 
 /// Iterates over the map and finds all of the occupied cells in the grid.
-fn build_map_index(map: &Map) -> OccupiedCells
+fn build_map_index(map: &Map) -> Points
 {
     let len = map.info.height * map.info.width;
 
@@ -92,7 +92,7 @@ fn callback(map: Map)
         while let Some(current_index) = staging.pop()
         {
             process_neighbours(current_index, &mut staging, &mut occupied_cells);
-            group_table.entry(current_group).or_insert(Vec::new()).push(current_index);
+            group_table.entry(current_group).or_insert(Points::default()).insert(current_index);
         }
 
         current_group += 1;
@@ -107,7 +107,6 @@ fn callback(map: Map)
         }
 
         // find the bounds of the box:
-        let upper = items.par_iter().max_by(|a,b| a.0.cmp(&b.0)).unwrap();
         let lower = items.par_iter().min_by(|a,b| a.0.cmp(&b.0)).unwrap();
         let left  = items.par_iter().max_by(|a,b| a.1.cmp(&b.1)).unwrap();
         let right = items.par_iter().min_by(|a,b| a.1.cmp(&b.1)).unwrap();
@@ -127,75 +126,9 @@ fn callback(map: Map)
             continue;
         }
 
-        ros_info!("vec a: {:?} vec b: {:?}", (a0, a1), (b0, b1));
-        ros_info!("Found bounding-box for Group {:?}: {:?} {:?} {:?} {:?}",
-            group, upper, lower, left, right);
+        let model = Model::fit(items, 0.02, a, b, b1.atan2(a1));
 
-        // check angle between the primary vectors
-        // if it's sufficiently away from 90 degrees then it's a circle.
-        let dot_product = ((a0 * b0) + (a1 * b1)).abs() / a*b*map.info.resolution.powi(2);
-
-        ros_info!("dot product: {:?}", dot_product);
-
-        if dot_product < 0.03
-        {
-            ros_info!("Found rectangle!");
-
-            ros_info!("Estimated length of side a: {:?} m", a);
-            ros_info!("Estimated length of side b: {:?} m", b);
-
-            let com0 = lower.0 as f32 + (a0 + b0) / 2.0;
-            let com1 = lower.1 as f32 + (a1 + b1) / 2.0;
-            let com  = ((com0 - (map.info.width  as f32)/2.0) * map.info.resolution,
-                        (com1 - (map.info.height as f32)/2.0) * map.info.resolution);
-
-            ros_info!("Estimated CoM in XY: {:?}", com);
-        }
-
-        else
-        {
-            ros_info!("Found circle!");
-            
-            // find the middle point
-            let mid_index = (left.1 + right.1) / 2;
-            let centre =
-                items
-                .par_iter()
-                .filter(|index| mid_index < index.1)
-                .min_by_key(|index| index.0)
-                .unwrap();
-
-            let p1 = left;
-            let p2 = centre;
-            let p3 = right;
-
-            ros_info!("P1: {:?}", p1);
-            ros_info!("P2: {:?}", p2);
-            ros_info!("P3: {:?}", p3);
-
-            let ma: f32 = (p2.1 - p1.1) as f32 / (p2.0 - p1.0) as f32;
-            let mb: f32 = (p3.1 - p2.1) as f32 / (p3.0 - p2.0) as f32;
-
-            let term1: f32 = (p1.1 - p3.1) as f32;
-            let term2: f32 = (p1.0 + p2.0) as f32;
-            let term3: f32 = (p2.0 + p3.0) as f32;
-
-            // centre of the circle
-            let x: f32 = (ma*mb*term1 + mb*term2 - ma*term3) / (2.0*(mb - ma));
-            let y: f32 = (-1.0/ma) * (x - (p1.0 + p2.0) as f32 / 2.0) + (p1.1 + p2.1) as f32 / 2.0;
-
-            let x_cm: f32 = (x - (map.info.width as f32) / 2.0) * map.info.resolution;
-            let y_cm: f32 = (y - (map.info.height as f32) / 2.0) * map.info.resolution;
-
-            ros_info!("Estimated CoM in XY: {:?}", (x_cm, y_cm));
-
-            // calculate the radius by vector difference
-            let tx = (p1.0 as f32 - x) as f32;
-            let ty = (p1.1 as f32 - y) as f32;
-            let radius = (tx.powi(2) + ty.powi(2)).sqrt() * map.info.resolution;
-
-            ros_info!("Estimated radius: {:?}", radius);
-        }
+        ros_info!("Fitted a model!: {:?}", model);
     }
 
     ros_info!("Done processing map");
@@ -203,15 +136,15 @@ fn callback(map: Map)
 
 /// Helper for processing the neighbours of a cell.
 fn process_neighbours(
-    p: Pair,
-    staging: &mut Vec<Pair>,
-    occupied_cells: &mut OccupiedCells
+    p: Point,
+    staging: &mut Vec<Point>,
+    occupied_cells: &mut Points
 )
 {
     // `(0 as usize) -1` is an easy way to cause a thread panic.
     // we do some gymnastics to check that we never do this.
 
-    let mut to_check: HashSet<Pair> = vec![
+    let mut to_check: Points = vec![
         (p.0 + 1, p.1    ),
         (p.0 + 2, p.1    ),
         (p.0    , p.1 + 1),
