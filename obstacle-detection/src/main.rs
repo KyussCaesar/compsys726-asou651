@@ -31,6 +31,9 @@ type HashSet<V> = std::collections::HashSet<V, Hasher>;
 /// A pair of indices into the map.
 type Pair = (usize, usize);
 
+/// A set of points.
+type Points = HashSet<Pair>;
+
 /// An alias for the `OccupancyGrid` message type.
 type Map = msg::nav_msgs::OccupancyGrid;
 
