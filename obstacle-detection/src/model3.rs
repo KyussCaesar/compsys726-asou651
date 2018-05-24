@@ -92,8 +92,6 @@ pub fn hough_transform(points: &Points, start: Point, a: Num, b: Num) -> Shape
     // otherwise, check for rectangle
     let rectle = fit_rectle(points, start, a, b);
 
-    panic!("");
-
     // we want the min of the scores
     if rectle.score < circle.score
     {
