@@ -7,38 +7,22 @@
 //! It uses the `gmapping` node to build a map of the arena using a laser scanner,
 //! and then processes the map in order to find the obstacles.
 
-#[macro_use] extern crate rosrust;
-#[macro_use] extern crate rosrust_codegen;
+extern crate common;
+use common::prelude::*;
 
-extern crate fnv;
-extern crate rayon;
+mod model3;
 
-use std::iter::Extend;
+use map_utils::
+{
+    Map,
+    Point,
+    Points,
+    HashMap,
 
-use rayon::prelude::*;
+    filter_map,
+};
 
-mod model;
-use model::Model;
-
-/// This gives access to ROS messages.
-rosmsg_include!();
-
-type Hasher = fnv::FnvBuildHasher;
-
-/// An alias for `HashMap`, using the fast FNV hashing algorithm.
-type HashMap<K, V> = std::collections::HashMap<K, V, Hasher>;
-
-/// An alias for `HashSet`, using the fast FNV hashing algorithm.
-type HashSet<V> = std::collections::HashSet<V, Hasher>;
-
-/// A pair of indices into the map.
-type Point = (usize, usize);
-
-/// A set of points.
-type Points = HashSet<Point>;
-
-/// An alias for the `OccupancyGrid` message type.
-type Map = msg::nav_msgs::OccupancyGrid;
+use common::prelude::*;
 
 /// Alias for `usize`.
 type GroupNumber = usize;
@@ -46,44 +30,42 @@ type GroupNumber = usize;
 /// A hash table that keeps track of contiguous blocks of occupied cells.
 type GroupTable = HashMap<GroupNumber, Points>;
 
-/// Iterates over the map and finds all of the occupied cells in the grid.
-fn build_map_index(map: &Map) -> Points
-{
-    let len = map.info.height * map.info.width;
-
-    // done in parallel to speed things up
-    (0..len).into_par_iter()
-    .zip(map.data.par_iter())
-    .filter_map(|(index, cell_value)|
-    {
-        if *cell_value > 3
-        {
-            let i = index / map.info.height;
-            let j = index % map.info.width;
-
-            Some((j as usize, i as usize))
-        }
-
-        else { None }
-    })
-    .collect()
-}
-
-
 /// The main callback that is passed to the subscriber object.
 fn callback(map: Map)
 {
-    println!("recieved map, info: {:?}", map.info);
+    println!("recieved map, info: {:.4?}", map.info);
+
+    // we want to find contiguous blocks of "filled" cells. This tells us the 
+    // edges of the shapes that we want to find.
+    //
+    // recursive flood-fill takes up too much memory and blows the stack real
+    // quick, so instead we use a "towers-of-babylon" type approach, where
+    // cell indices that need to be checked are moved from an index into a
+    // "staging" area.
+    //
+    // For each cell in the set of occupied cells:
+    // 
+    // * move the cell from the occupied cells set into the "staging" set.
+    // * that cell is added to the current group.
+    // * find all the neighbours of that cell that are also occupied.
+    // * those cells should also belong to the current group.
+    // * finally, add the current cell to the "group" index.
+    //
+    // Once all the cells in the occupied set have been processed, we will now
+    // have sets of points that are known to be close together and make up the 
+    // edge of a shape. Now all we have to do is find out whether a given set 
+    // of points makes up a rectangle or a circle.
 
     let mut current_group = 0;
     let mut staging = Vec::new();
     let mut group_table = GroupTable::default();
 
-    let mut occupied_cells = build_map_index(&map);
+    let mut occupied_cells = filter_map(&map, |value| value > 3);
 
     while occupied_cells.len() != 0
     {
-        // take the next one.
+        // take the next one. Unfortunately, it seems there is no method for
+        // this for HashSet.
         let mut iterator = occupied_cells.into_iter();
         let index = iterator.next().unwrap();
         occupied_cells = iterator.collect();
@@ -91,6 +73,7 @@ fn callback(map: Map)
         staging.push(index);
         while let Some(current_index) = staging.pop()
         {
+            // move all of the neighbours
             process_neighbours(current_index, &mut staging, &mut occupied_cells);
             group_table.entry(current_group).or_insert(Points::default()).insert(current_index);
         }
@@ -98,40 +81,73 @@ fn callback(map: Map)
         current_group += 1;
     }
 
-    for (group, items) in group_table.iter()
+    // we can now iterate over the groups of cells and try to determine whether
+    // each group makes up a circle or a rectangle.
+    for (group, items) in group_table.into_iter()
     {
         if items.len() == 0
         {
-            ros_info!("Skipped a group that contained zero elements! (This should never happen).");
+            println!("Skipped a group that contained zero elements! (This should never happen).");
             continue;
         }
 
+        // transform the items into xy, relative to the robot
+        // starting position.
+        let items = map_utils::par_transform(&map, items);
+
         // find the bounds of the box:
-        let lower = items.par_iter().min_by(|a,b| a.0.cmp(&b.0)).unwrap();
-        let left  = items.par_iter().max_by(|a,b| a.1.cmp(&b.1)).unwrap();
-        let right = items.par_iter().min_by(|a,b| a.1.cmp(&b.1)).unwrap();
+        let upper = items.par_iter().max_by(|a,b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
+        let lower = items.par_iter().min_by(|a,b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
+        let left  = items.par_iter().max_by(|a,b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
+        let right = items.par_iter().min_by(|a,b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
 
-        let a0 = left.0  as f32 - lower.0 as f32;
-        let a1 = left.1  as f32 - lower.1 as f32;
-        let b0 = right.0 as f32 - lower.0 as f32;
-        let b1 = right.1 as f32 - lower.1 as f32;
+        let box_size =
+        {
+            let bh = upper.0 - lower.0;
+            let bw  = left.0 - right.0;
 
-        let a = (a0.powi(2) + a1.powi(2)).sqrt() * map.info.resolution;
-        let b = (b0.powi(2) + b1.powi(2)).sqrt() * map.info.resolution;
+            bh.hypot(bw)
+        };
 
-        if a < 0.09 || b < 0.09 || a > 1.0 || b > 1.0
+        let a0 = left.0  as Num - lower.0 as Num;
+        let a1 = left.1  as Num - lower.1 as Num;
+        let b0 = right.0 as Num - lower.0 as Num;
+        let b1 = right.1 as Num - lower.1 as Num;
+
+        let a = a0.hypot(a1);
+        let b = b0.hypot(b1);
+
+        if a < 0.09 || b < 0.09 || box_size > 1.5
         {
             // assuming it's noise and quietly continuing.
             // this also filters for the borders
             continue;
         }
 
-        let model = Model::fit(items, 0.02, a, b, b1.atan2(a1));
+        println!("a0: {}", a0);
+        println!("a1: {}", a1);
+        println!("b0: {}", b0);
+        println!("b1: {}", b1);
+        println!("a:  {}", a);
+        println!("b:  {}", b);
 
-        ros_info!("Fitted a model!: {:?}", model);
+        println!("Bounding box:\nUpper: {:3.4}\t{:3.4}\nLower: {:3.4}\t{:3.4}\nLeft : {:3.4}\t{:3.4}\nRight: {:3.4}\t{:3.4}",
+            upper.0, upper.1,
+            lower.0, lower.1,
+             left.0,  left.1,
+            right.0, right.1);
+
+        let shape = model3::hough_transform(
+            &items,
+            (lower.0 + (a0+b0)/2.0, lower.1 + (a1+b1)/2.0),
+            a,
+            b,
+        );
+
+        println!("{:?}", shape);
     }
 
-    ros_info!("Done processing map");
+    println!("Done processing map");
 }
 
 /// Helper for processing the neighbours of a cell.
@@ -141,40 +157,17 @@ fn process_neighbours(
     occupied_cells: &mut Points
 )
 {
-    // `(0 as usize) -1` is an easy way to cause a thread panic.
-    // we do some gymnastics to check that we never do this.
+    let mut to_check: Points = Points::default();
 
-    let mut to_check: Points = vec![
-        (p.0 + 1, p.1    ),
-        (p.0 + 2, p.1    ),
-        (p.0    , p.1 + 1),
-        (p.0    , p.1 + 2),
-        (p.0 + 1, p.1 + 1),
-        ].into_iter().collect();
-
-    if p.0 > 0
+    for i in 0..3
     {
-        to_check.extend(vec![(p.0 - 1, p.1), (p.0 - 1, p.1 + 1)]);
-    }
-
-    if p.0 > 1
-    {
-        to_check.extend(vec![(p.0 - 2, p.1)]);
-    }
-
-    if p.1 > 0
-    {
-        to_check.extend(vec![(p.0, p.1 - 1), (p.0 + 1, p.1 - 1)]);
-    }
-
-    if p.1 > 1
-    {
-        to_check.extend(vec![(p.0, p.1 - 2)]);
-    }
-
-    if p.0 > 0 && p.1 > 0
-    {
-        to_check.extend(vec![(p.0 - 1, p.1 - 1)]);
+        for j in 0..3
+        {
+            to_check.insert((p.0.saturating_add(i), p.1.saturating_add(j)));
+            to_check.insert((p.0.saturating_add(i), p.1.saturating_sub(j)));
+            to_check.insert((p.0.saturating_sub(i), p.1.saturating_add(j)));
+            to_check.insert((p.0.saturating_sub(i), p.1.saturating_sub(j)));
+        }
     }
 
     // add points that are "to_check" but still in occupied
@@ -196,7 +189,7 @@ fn main()
         Ok(s) => s,
         Err(e) =>
         {
-            ros_info!("ERROR! Could not subscribe to /map: {:?}. Node is shutting down", e);
+            println!("ERROR! Could not subscribe to /map: {:?}. Node is shutting down", e);
             return;
         }
     };
