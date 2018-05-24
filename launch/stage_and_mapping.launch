@@ -1,5 +1,5 @@
 <launch>
 <param name="use_sim_time" value="true"/>
-<node pkg="stage_ros" type="stageros" name="stage" args="/home/antony/Documents/University/2018/sem1/compsys726/assignment2/world/task1.world"/>
+<node pkg="stage_ros" type="stageros" name="stage" args="/home/antony/Documents/University/2018/sem1/compsys726/assignment2/world/generated.world"/>
 <node pkg="gmapping" type="slam_gmapping" args="scan:=/base_scan _linearUpdate:=0.0 _angularUpdate:=0.0 _delta:=0.008 _xmin:=-10 _ymin:=-10 _xmax:=10 _ymax:=10" name="mapping"/>
 </launch>

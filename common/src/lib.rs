@@ -108,4 +108,106 @@ pub mod map_utils
     {
         items.into_par_iter().map(|p| tf_helper(map, p)).collect()
     }
+
+    /// Alias for `usize`.
+    pub type GroupNumber = usize;
+
+    /// A hash table that keeps track of contiguous blocks of cells which satisfied
+    /// a predicate. See `extract_groups`.
+    pub type GroupTable = HashMap<GroupNumber, Points>;
+
+    /// Extracts groups from the map. A "group" is a contiguous block of cells
+    /// whose value results in the predicate returning true.
+    ///
+    /// Recursive flood-fill takes up too much memory and blows the stack real
+    /// quick, so instead we use a "towers-of-babylon" type approach, where
+    /// cell indices that need to be checked are moved from an index into a
+    /// "staging" area.
+    ///
+    /// For each cell in the set of cells which satisfy the predicate:
+    /// 
+    /// * move the cell from the cells set into the "staging" set.
+    /// * that cell is added to the current group.
+    /// * find all the neighbours of that cell that also satisfy the predicate.
+    /// * those cells should also belong to the current group.
+    /// * finally, add the current cell to the "group" index.
+    ///
+    /// Once all the cells in the occupied set have been processed, we will now
+    /// have sets of points that are known to be close together and make up a 
+    /// group.
+    ///
+    /// `kernel_size` is the region for which a cell is considered a "neighbour".
+    pub fn extract_groups<F>(map: &Map, pred: F, kernel_size: usize) -> GroupTable
+    where
+        F: Fn(i8) -> bool + Sync
+    {
+        // first, get the whole set of cells which satisfy the predicate
+        let mut cells = filter_map(map, pred);
+
+        // now, initialise some stuff
+        let mut current_group = 0;
+        let mut staging = Vec::new();
+        let mut group_table = GroupTable::default();
+
+        // we play "towers of babylon".
+        while cells.len() != 0
+        {
+            // take the next one. Unfortunately, it seems there is no method for
+            // this for HashSet.
+            let mut iterator = cells.into_iter();
+            let index = iterator.next().unwrap();
+            cells = iterator.collect();
+
+            staging.push(index);
+            while let Some(current_index) = staging.pop()
+            {
+                // move all of the neighbours
+                process_neighbours(current_index, &mut staging, &mut cells, kernel_size);
+                group_table.entry(current_group).or_insert(Points::default()).insert(current_index);
+            }
+
+            current_group += 1;
+        }
+
+        return group_table;
+    }
+
+    // Helper for extract_groups
+    fn process_neighbours(
+        p: Point,
+        staging: &mut Vec<Point>,
+        cells: &mut Points,
+        kernel_size: usize,
+    )
+    {
+        let mut to_check = neighbours(p, kernel_size);
+
+        // add points that are "to_check" but still in occupied
+        cells.intersection(&to_check).for_each(|p| staging.push(*p));
+
+        // remove those cells from list.
+        to_check.iter().for_each(|p| { cells.remove(p); });
+    }
+
+    /// Returns the set of neighbours of a cell.
+    pub fn neighbours(
+        p: Point,
+        kernel_size: usize,
+    ) -> Points
+    {
+        let mut neighbours: Points = Points::default();
+
+        for i in 0..kernel_size
+        {
+            for j in 0..kernel_size
+            {
+                neighbours.insert((p.0.saturating_add(i), p.1.saturating_add(j)));
+                neighbours.insert((p.0.saturating_add(i), p.1.saturating_sub(j)));
+                neighbours.insert((p.0.saturating_sub(i), p.1.saturating_add(j)));
+                neighbours.insert((p.0.saturating_sub(i), p.1.saturating_sub(j)));
+            }
+        }
+
+        return neighbours;
+    }
 }
