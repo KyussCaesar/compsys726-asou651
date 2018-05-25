@@ -5,7 +5,7 @@
 # Getting Started
 
 This project has been written in the [Rust](https://www.rust-lang.org/en-US/)
-programming language. You can follow the link to for installation instructions.
+programming language. You can follow the link for installation instructions.
 Keeping all of the defaults should be fine; i.e use the latest "stable"
 toolchain.
 
@@ -19,8 +19,9 @@ Rust](https://this-week-in-rust.org/blog/2018/05/22/this-week-in-rust-235/):
 
 Rust is one of my favourite languages, because it lets you write code that
 competes with C/C++ for speed, but is memory-safe *without a garbage collector*.
-Rust makes use of compile-time checks to remove the three most common bugs in
-C/C++ code:
+It also provides a lot of high-level features which make it feel a little bit
+like programming in Python sometimes.  Rust makes use of compile-time checks to
+remove the three most common bugs in C/C++ code:
 
 * Use-after-free.
 * Double-free.
