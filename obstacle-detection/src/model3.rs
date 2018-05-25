@@ -1,3 +1,83 @@
+//! This module contains the core obstacle-identification logic.
+//!
+//! # Approach
+//!
+//! The nucleus of my approach is the equation for a cirle:
+//!
+//! ```
+//! x^2 + y^2 = r^2
+//! ```
+//!
+//! If you generalise this over any even-numberered positive integer, then the
+//! set of pairs of values for (x, y) begins to approach the shape of a square,
+//! and for sufficiently large values of the exponent it basically becomes a
+//! square.
+//!
+//! Likewise, for an ellipse:
+//!
+//! ```
+//! (x/a)^2 + (y/b)^2 = 1
+//! ```
+//!
+//! And again, likewise, for sufficiently large exponents, we begin to see a
+//! rectangle, whose side lengths can be controlled by `a` and `b`.
+//!
+//! Finally, we can also apply a rotation and translation, by applying the
+//! transformations:
+//!
+//! ```
+//! x1 = (x - p)
+//! y1 = (y - q)
+//!
+//! x2 = x1 * cos(t) + y1*sin(t)
+//! y2 = y1 * cos(t) - x1*sin(t)
+//!
+//! (x2/a)^(2s) + (y2/b)^(2s) = 1
+//! ```
+//!
+//! We can now describe a rectangle in the plane:
+//!
+//! * `p,q` the location of the centre of the rectangle.
+//! * `a,b` the length and width of the rectangle. 
+//! * `t` the orientation of the rectangle. 
+//! * `s` the "sharpness" of the corners of the rectangle.
+//!
+//! Note that the above equation can be used to describe both a circle *or* a
+//! rectangle, which is handy.
+//!
+//! Now, let `X = (x2/a)^(2s) + (y2/b)^(2s)`. We can define a function `M`
+//! like so:
+//!
+//! ```
+//! M = (X - 1)^2
+//! ```
+//!
+//! We now have a function that describes the "badness" of fit between some set
+//! of parameters `rho` = (`a`, `b`, `p`, `q`, `t, `s`) and a set of (`x`, `y`)
+//! points.  If some point `p` lies on the circle/rectangle described by some
+//! set of parameters `rho`, then we would expect the value of `M` to be zero. 
+//! If `p` does not lie on the shape, then we would expect the value of `M` to
+//! be greater than zero.
+//!
+//! Likewise for a set of points: if we have a set of points that make up some
+//! shape, which is also described by a the set of parameters, then the
+//! aggregate output of `M` (e.g mean, mean-squared, sum-of-squared etc) should
+//! be zero.
+//!
+//! Therefore, given some set of points that make up an obstacle, we can use a
+//! method like the Hough Transform, Gradient Descent or RANSAC to find the set
+//! of parameters that most closely match the points.
+//!
+//! # Implementation
+//!
+//! I first tried Gradient Descent for this task, but unfortunately I could
+//! never get any satisfactory results. The current implementation uses the
+//! Hough Transform (i.e parameter search), and works well for circles, but
+//! poorly for rectangles.
+//!
+//! Where possible, I make use of the `rayon` crate to parallelise the
+//! computations, although HT is still rather slow.
+
 #![allow(non_snake_case)]
 
 use ::common::prelude::*;
@@ -8,6 +88,7 @@ type Range  = Vec<Num>;
 
 use std::f64::INFINITY;
 
+/// The shape.
 #[derive(Debug)]
 pub enum Shape
 {
@@ -16,6 +97,7 @@ pub enum Shape
 }
 
 
+/// A circle.
 #[derive(Debug)]
 pub struct Circle
 {
@@ -37,7 +119,7 @@ impl Circle
     }
 }
 
-
+/// A Rectangle
 #[derive(Debug)]
 pub struct Rectle
 {
@@ -50,18 +132,6 @@ pub struct Rectle
 
 impl Rectle
 {
-    fn new() -> Self
-    {
-        Rectle
-        {
-            centre: (0.0, 0.0),
-            width: 0.0,
-            length:  0.0,
-            rotation: 0.0,
-            score: INFINITY,
-        }
-    }
-
     fn from(points: &Points, a: Num, b: Num, p: Num, q: Num, t: Num) -> Self
     {
         Rectle
@@ -111,6 +181,7 @@ fn fit_rectle(points: &Points, start: Point, a: Num, b: Num) -> Rectle
     let pq_width = 0.020;
     let ab_width = 0.020;
 
+    // generate the parameter sets in parallel.
     let min: Rectle            = range(a - ab_width, a + ab_width, 0.010).into_par_iter()
     .flat_map(|aa              | range(b - ab_width, b + ab_width, 0.010).into_par_iter().map(|bb| (aa, bb)             ).collect::<Vec<_>>())
     .flat_map(|(aa, bb)        | range(p - pq_width, p + pq_width, 0.010).into_par_iter().map(|pp| (aa, bb, pp)         ).collect::<Vec<_>>())
@@ -179,6 +250,7 @@ fn ht_score(points: &Points, a: Num, b: Num, p: Num, q: Num, t: Num, s: i32) -> 
 }
 
 
+// generates a range.
 fn range(start: Num, stop: Num, step: Num) -> Range
 {
     let mut vec = Vec::new();

@@ -1,5 +1,4 @@
-//! # Task 1 Part 1:
-//! ## Obstacle Detection
+//! # Obstacle Detection
 //!
 //! This module contains the definition of a ROS node for detecting objects
 //! in the arena.
@@ -15,7 +14,6 @@ mod model3;
 use map_utils::
 {
     Map,
-    Point,
     extract_groups,
 };
 
@@ -28,7 +26,7 @@ fn callback(map: Map)
 
     // we can now iterate over the groups of cells and try to determine whether
     // each group makes up a circle or a rectangle.
-    for (group, items) in group_table.into_iter()
+    for (_group, items) in group_table.into_iter()
     {
         if items.len() == 0
         {

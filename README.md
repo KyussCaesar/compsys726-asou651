@@ -108,17 +108,23 @@ of the project, and run `catkin_make`.
 The following command can be used to start `ropose`:
 
 ```
-
 rosrun ropose ropose
-
 ```
 
 Symlinks to the Rust nodes (`obstacle-detection` and `pathfinding`) are located
 in the `nodes/` subdirectory and can be started like so.
 
 ```
-
 ./nodes/<node-name>
-
 ```
+
+# Documentation
+
+Documentation for each crate (and it's dependencies) can be found online:
+
+[`obstacle-detection`](https://asou651.bitbucket.io/compsys726/doc/obstacle_detection/index.html)
+
+[`pathfinding`](https://asou651.bitbucket.io/compsys726/doc/pathfinding/index.html)
+
+[`common`](https://asou651.bitbucket.io/compsys726/doc/common/index.html)
 

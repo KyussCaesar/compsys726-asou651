@@ -1,3 +1,10 @@
+//! # `pathfinding`
+//!
+//! This crate contains the definition of a node for pathfinding.
+//!
+//! Since I ran out of time on this assignment and nothing would work, this just
+//! simply commands the robot to spin in a circle.
+
 // common stuff for the assignment.
 extern crate common;
 
