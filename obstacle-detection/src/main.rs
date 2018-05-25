@@ -9,7 +9,8 @@
 extern crate common;
 use common::prelude::*;
 
-mod model3;
+/// The model for finding shapes.
+pub mod model3;
 
 use map_utils::
 {

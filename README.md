@@ -9,7 +9,7 @@ programming language. You can follow the link to for installation instructions.
 Keeping all of the defaults should be fine; i.e use the latest "stable"
 toolchain.
 
-## Breifly, What is Rust?
+## Briefly, What is Rust?
 
 From the latest issue of [This Week in
 Rust](https://this-week-in-rust.org/blog/2018/05/22/this-week-in-rust-235/):
@@ -122,9 +122,8 @@ in the `nodes/` subdirectory and can be started like so.
 
 Documentation for each crate (and it's dependencies) can be found online:
 
-[`obstacle-detection`](https://asou651.bitbucket.io/compsys726/doc/obstacle_detection/index.html)
-
-[`pathfinding`](https://asou651.bitbucket.io/compsys726/doc/pathfinding/index.html)
-
-[`common`](https://asou651.bitbucket.io/compsys726/doc/common/index.html)
+* [`obstacle-detection`](https://asou651.bitbucket.io/compsys726/doc/obstacle_detection/index.html)
+    * [model for finding rectangles/circles](https://asou651.bitbucket.io/compsys726/doc/obstacle_detection/model3/index.html)
+* [`pathfinding`](https://asou651.bitbucket.io/compsys726/doc/pathfinding/index.html)
+* [`common`](https://asou651.bitbucket.io/compsys726/doc/common/index.html)
 

@@ -53,7 +53,7 @@
 //! ```
 //!
 //! We now have a function that describes the "badness" of fit between some set
-//! of parameters `rho` = (`a`, `b`, `p`, `q`, `t, `s`) and a set of (`x`, `y`)
+//! of parameters `rho` = (`a`, `b`, `p`, `q`, `t`, `s`) and a set of (`x`, `y`)
 //! points.  If some point `p` lies on the circle/rectangle described by some
 //! set of parameters `rho`, then we would expect the value of `M` to be zero. 
 //! If `p` does not lie on the shape, then we would expect the value of `M` to
